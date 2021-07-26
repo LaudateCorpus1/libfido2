@@ -1,0 +1,34 @@
+name: fuzzer-openssl3
+
+on:
+  pull_request:
+    branches:
+    - master
+  push:
+    branches:
+    - master
+    - '*-ci'
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-20.04 ]
+        cc: [ clang-11 ]
+        sanitizer: [ asan, msan ]
+    steps:
+    - uses: actions/checkout@v2
+    - name: dependencies
+      env:
+        CC: ${{ matrix.cc }}
+      run: |
+        sudo apt -q update
+        sudo apt install -q -y libudev-dev ${CC%-*}-tools-${CC#clang-}
+        sudo apt remove -y libssl-dev
+    - name: fuzz
+      env:
+        CC: ${{ matrix.cc }}
+        SANITIZER: ${{ matrix.sanitizer }}
+      run: ./.actions/fuzz-openssl3-linux ${SANITIZER}

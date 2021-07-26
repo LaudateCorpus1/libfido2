@@ -1,0 +1,31 @@
+#!/bin/sh -eux
+
+${CC} --version
+FAKEROOT="$(mktemp -d)"
+
+# Build and install OpenSSL HEAD.
+git clone --depth=1 https://github.com/openssl/openssl
+cd openssl
+./Configure linux-x86_64 --prefix="${FAKEROOT}" --openssldir="${FAKEROOT}/openssl" --libdir=lib
+make install_sw
+cd ..
+
+# Build and install libfido2.
+for T in Debug Release; do
+	mkdir build-$T
+	export PKG_CONFIG_PATH="${FAKEROOT}/lib/pkgconfig"
+	(cd build-$T && cmake -DCMAKE_BUILD_TYPE=$T ..)
+	make -j"$(nproc)" -C build-$T 2>&1 | tee /tmp/$T.txt
+	sudo make -C build-$T install
+done
+
+# Check udev/fidodevs.
+[ -x "$(which update-alternatives)" ] && {
+	sudo update-alternatives --set awk "$(which original-awk)"
+}
+udev/check.sh udev/fidodevs
+
+# Print warning statistics.
+for T in Debug Release; do
+	awk '/warning:/ { print $NF }' /tmp/$T.txt | sort | uniq -c | sort -rn
+done
