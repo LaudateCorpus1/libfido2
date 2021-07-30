@@ -90,7 +90,7 @@ static void *
 load_pubkey(int type, const char *file)
 {
 	EC_KEY *ec = NULL;
-	RSA *rsa = NULL;
+	EVP_PKEY *rsa = NULL;
 	EVP_PKEY *eddsa = NULL;
 	es256_pk_t *es256_pk = NULL;
 	rs256_pk_t *rs256_pk = NULL;
@@ -112,11 +112,11 @@ load_pubkey(int type, const char *file)
 			errx(1, "read_rsa_pubkey");
 		if ((rs256_pk = rs256_pk_new()) == NULL)
 			errx(1, "rs256_pk_new");
-		if (rs256_pk_from_RSA(rs256_pk, rsa) != FIDO_OK)
-			errx(1, "rs256_pk_from_RSA");
+		if (rs256_pk_from_EVP_PKEY(rs256_pk, rsa) != FIDO_OK)
+			errx(1, "rs256_pk_from_EVP_PKEY");
 
 		pk = rs256_pk;
-		RSA_free(rsa);
+		EVP_PKEY_free(rsa);
 	} else if (type == COSE_EDDSA) {
 		if ((eddsa = read_eddsa_pubkey(file)) == NULL)
 			errx(1, "read_eddsa_pubkey");

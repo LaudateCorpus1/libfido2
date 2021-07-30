@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Yubico AB. All rights reserved.
+ * Copyright (c) 2018-2021 Yubico AB. All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the LICENSE file.
  */
@@ -11,31 +11,54 @@
 #include "fido.h"
 #include "fido/rs256.h"
 
-#if OPENSSL_VERSION_NUMBER < 0x10100000L
-static int
-RSA_bits(const RSA *r)
+#if defined(LIBRESSL_VERSION_NUMBER)
+EVP_MD *
+rs256_get_EVP_MD(void)
 {
-	return (BN_num_bits(r->n));
+	const EVP_MD *from;
+	EVP_MD *to = NULL;
+
+	if ((from = EVP_sha256()) != NULL && (to = malloc(sizeof(*to))) != NULL)
+		memcpy(to, from, sizeof(*to));
+
+	return (to);
 }
 
-static int
-RSA_set0_key(RSA *r, BIGNUM *n, BIGNUM *e, BIGNUM *d)
+void
+rs256_free_EVP_MD(EVP_MD *md)
 {
-	r->n = n;
-	r->e = e;
-	r->d = d;
-
-	return (1);
+	freezero(md, sizeof(*md));
+}
+#elif OPENSSL_VERSION_NUMBER >= 0x30000000
+EVP_MD *
+rs256_get_EVP_MD(void)
+{
+	return (EVP_MD_fetch(NULL, "SHA2-256", NULL));
 }
 
-static void
-RSA_get0_key(const RSA *r, const BIGNUM **n, const BIGNUM **e, const BIGNUM **d)
+void
+rs256_free_EVP_MD(EVP_MD *md)
 {
-	*n = r->n;
-	*e = r->e;
-	*d = r->d;
+	EVP_MD_free(md);
 }
-#endif /* OPENSSL_VERSION_NUMBER < 0x10100000L */
+#else
+EVP_MD *
+rs256_get_EVP_MD(void)
+{
+	const EVP_MD *md;
+
+	if ((md = EVP_sha256()) == NULL)
+		return (NULL);
+
+	return (EVP_MD_meth_dup(md));
+}
+
+void
+rs256_free_EVP_MD(EVP_MD *md)
+{
+	EVP_MD_meth_free(md);
+}
+#endif /* LIBRESSL_VERSION_NUMBER */
 
 static int
 decode_bignum(const cbor_item_t *item, void *ptr, size_t len)
@@ -113,6 +136,102 @@ rs256_pk_from_ptr(rs256_pk_t *pk, const void *ptr, size_t len)
 	return (FIDO_OK);
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000
+EVP_PKEY *
+rs256_pk_to_EVP_PKEY(const rs256_pk_t *k)
+{
+	OSSL_PARAM	 param[3];
+	EVP_PKEY_CTX	*pctx = NULL;
+	EVP_PKEY	*pkey = NULL;
+	rs256_pk_t 	*t = NULL;
+
+	if ((t = rs256_pk_new()) == NULL ||
+	    rs256_pk_from_ptr(t, k, sizeof(*k)) != FIDO_OK) {
+		fido_log_debug("%s: rs256_pk_from_ptr", __func__);
+		goto fail;
+	}
+
+	param[0] = OSSL_PARAM_construct_BN("n", t->n, sizeof(t->n));
+	param[1] = OSSL_PARAM_construct_BN("e", t->e, sizeof(t->e));
+	param[2] = OSSL_PARAM_construct_end();
+
+	if ((pctx = EVP_PKEY_CTX_new_from_name(NULL, "RSA", NULL)) == NULL) {
+		fido_log_debug("%s: EVP_PKEY_CTX_new_from_name", __func__);
+		goto fail;
+	}
+
+	if (EVP_PKEY_fromdata_init(pctx) != 1 ||
+	    EVP_PKEY_fromdata(pctx, &pkey, EVP_PKEY_PUBLIC_KEY, param) != 1) {
+		fido_log_debug("%s: EVP_PKEY_fromdata", __func__);
+		/* pkey is NULL */
+	}
+fail:
+	EVP_PKEY_CTX_free(pctx);
+	rs256_pk_free(&t);
+
+	return (pkey);
+}
+
+int
+rs256_pk_from_RSA(rs256_pk_t *pk, const RSA *rsa)
+{
+	(void)pk;
+	(void)rsa;
+
+	return (FIDO_ERR_INVALID_ARGUMENT);
+}
+
+int
+rs256_pk_from_EVP_PKEY(rs256_pk_t *pk, const EVP_PKEY *pkey)
+{
+	BIGNUM	*n = NULL;
+	BIGNUM	*e = NULL;
+	int	 k;
+	int	 r;
+
+	if (EVP_PKEY_id(pkey) != EVP_PKEY_RSA) {
+		fido_log_debug("%s: EVP_PKEY_id", __func__);
+		r = FIDO_ERR_INVALID_ARGUMENT;
+		goto fail;
+	}
+
+	if (EVP_PKEY_bits(pkey) != 2048) {
+		fido_log_debug("%s: EVP_PKEY_bits", __func__);
+		r = FIDO_ERR_INVALID_LENGTH;
+		goto fail;
+	}
+
+	if (EVP_PKEY_get_bn_param(pkey, "n", &n) != 1 ||
+	    EVP_PKEY_get_bn_param(pkey, "e", &e) != 1 ||
+	    n == NULL || e == NULL) {
+		fido_log_debug("%s: EVP_PKEY_get_bn_param", __func__);
+		r = FIDO_ERR_INTERNAL;
+		goto fail;
+	}
+
+	if ((k = BN_num_bytes(n)) < 0 || (size_t)k > sizeof(pk->n) ||
+	    (k = BN_num_bytes(e)) < 0 || (size_t)k > sizeof(pk->e)) {
+		fido_log_debug("%s: invalid key", __func__);
+		r = FIDO_ERR_INTERNAL;
+		goto fail;
+	}
+
+	if ((k = BN_bn2bin(n, pk->n)) < 0 || (size_t)k > sizeof(pk->n) ||
+	    (k = BN_bn2bin(e, pk->e)) < 0 || (size_t)k > sizeof(pk->e)) {
+		fido_log_debug("%s: BN_bn2bin", __func__);
+		r = FIDO_ERR_INTERNAL;
+		goto fail;
+	}
+
+	r = FIDO_OK;
+fail:
+	BN_free(n);
+	BN_free(e);
+
+	return (r);
+
+}
+#else /* OPENSSL_VERSION_NUMBER < 0x30000000 */
 EVP_PKEY *
 rs256_pk_to_EVP_PKEY(const rs256_pk_t *k)
 {
@@ -197,4 +316,59 @@ rs256_pk_from_RSA(rs256_pk_t *pk, const RSA *rsa)
 	}
 
 	return (FIDO_OK);
+}
+
+int
+rs256_pk_from_EVP_PKEY(rs256_pk_t *pk, const EVP_PKEY *pkey)
+{
+	RSA *rsa;
+
+	if (EVP_PKEY_id(pkey) != EVP_PKEY_RSA ||
+	    (rsa = EVP_PKEY_get0(pkey)) == NULL)
+		return (FIDO_ERR_INVALID_ARGUMENT);
+
+	return (rs256_pk_from_RSA(pk, rsa));
+}
+#endif /* OPENSSL_VERSION_NUMBER >= 0x30000000 */
+
+int
+rs256_verify_sig(const fido_blob_t *dgst, const rs256_pk_t *pk,
+    const fido_blob_t *sig)
+{
+	EVP_PKEY	*pkey = NULL;
+	EVP_PKEY_CTX	*pctx = NULL;
+	EVP_MD		*md = NULL;
+	int		 ok = -1;
+
+	if ((md = rs256_get_EVP_MD()) == NULL) {
+		fido_log_debug("%s: rs256_get_EVP_MD", __func__);
+		goto fail;
+	}
+
+	if ((pkey = rs256_pk_to_EVP_PKEY(pk)) == NULL) {
+		fido_log_debug("%s:  rs256_pk_to_EVP_PKEY", __func__);
+		goto fail;
+	}
+
+	if ((pctx = EVP_PKEY_CTX_new(pkey, NULL)) == NULL ||
+	    EVP_PKEY_verify_init(pctx) != 1 ||
+	    EVP_PKEY_CTX_set_rsa_padding(pctx, RSA_PKCS1_PADDING) != 1 ||
+	    EVP_PKEY_CTX_set_signature_md(pctx, md) != 1) {
+		fido_log_debug("%s: EVP_PKEY_CTX", __func__);
+		goto fail;
+	}
+
+	if (EVP_PKEY_verify(pctx, sig->ptr, sig->len, dgst->ptr,
+	    dgst->len) != 1) {
+		fido_log_debug("%s: EVP_PKEY_verify", __func__);
+		goto fail;
+	}
+
+	ok = 0;
+fail:
+	EVP_PKEY_free(pkey);
+	EVP_PKEY_CTX_free(pctx);
+	rs256_free_EVP_MD(md);
+
+	return (ok);
 }

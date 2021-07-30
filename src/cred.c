@@ -448,7 +448,7 @@ fido_cred_verify_self(const fido_cred_t *cred)
 		    &cred->attstmt.sig);
 		break;
 	case COSE_RS256:
-		ok = fido_verify_sig_rs256(&dgst, &cred->attcred.pubkey.rs256,
+		ok = rs256_verify_sig(&dgst, &cred->attcred.pubkey.rs256,
 		    &cred->attstmt.sig);
 		break;
 	case COSE_EDDSA:

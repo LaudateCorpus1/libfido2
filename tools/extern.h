@@ -88,7 +88,7 @@ int write_ec_pubkey(FILE *, const void *, size_t);
 int write_rsa_pubkey(FILE *, const void *, size_t);
 int read_file(const char *, u_char **, size_t *);
 int write_file(const char *, const u_char *, size_t);
-RSA *read_rsa_pubkey(const char *);
+EVP_PKEY *read_rsa_pubkey(const char *);
 EVP_PKEY *read_eddsa_pubkey(const char *);
 int write_eddsa_pubkey(FILE *, const void *, size_t);
 void print_cred(FILE *, int, const fido_cred_t *);

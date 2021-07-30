@@ -202,12 +202,14 @@ int fido_sha256(fido_blob_t *, const u_char *, size_t);
 /* crypto */
 int fido_verify_sig_es256(const fido_blob_t *, const es256_pk_t *,
     const fido_blob_t *);
-int fido_verify_sig_rs256(const fido_blob_t *, const rs256_pk_t *,
-    const fido_blob_t *);
 int fido_verify_sig_eddsa(const fido_blob_t *, const eddsa_pk_t *,
     const fido_blob_t *);
 int fido_get_signed_hash(int, fido_blob_t *, const fido_blob_t *,
     const fido_blob_t *);
+int rs256_verify_sig(const fido_blob_t *, const rs256_pk_t *,
+    const fido_blob_t *);
+EVP_MD *rs256_get_EVP_MD(void);
+void rs256_free_EVP_MD(EVP_MD *);
 
 /* device manifest functions */
 int fido_hid_manifest(fido_dev_info_t *, size_t, size_t *);

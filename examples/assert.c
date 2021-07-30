@@ -43,7 +43,7 @@ verify_assert(int type, const unsigned char *authdata_ptr, size_t authdata_len,
 {
 	fido_assert_t	*assert = NULL;
 	EC_KEY		*ec = NULL;
-	RSA		*rsa = NULL;
+	EVP_PKEY	*rsa = NULL;
 	EVP_PKEY	*eddsa = NULL;
 	es256_pk_t	*es256_pk = NULL;
 	rs256_pk_t	*rs256_pk = NULL;
@@ -75,11 +75,11 @@ verify_assert(int type, const unsigned char *authdata_ptr, size_t authdata_len,
 		if ((rs256_pk = rs256_pk_new()) == NULL)
 			errx(1, "rs256_pk_new");
 
-		if (rs256_pk_from_RSA(rs256_pk, rsa) != FIDO_OK)
-			errx(1, "rs256_pk_from_RSA");
+		if (rs256_pk_from_EVP_PKEY(rs256_pk, rsa) != FIDO_OK)
+			errx(1, "rs256_pk_from_EVP_PKEY");
 
 		pk = rs256_pk;
-		RSA_free(rsa);
+		EVP_PKEY_free(rsa);
 		rsa = NULL;
 
 		break;

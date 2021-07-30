@@ -281,36 +281,26 @@ fail:
 	return (ok);
 }
 
-RSA *
+EVP_PKEY *
 read_rsa_pubkey(const char *path)
 {
 	FILE *fp = NULL;
 	EVP_PKEY *pkey = NULL;
-	RSA *rsa = NULL;
 
 	if ((fp = fopen(path, "r")) == NULL) {
 		warn("fopen");
-		goto fail;
+		return (NULL);
 	}
-
 	if ((pkey = PEM_read_PUBKEY(fp, NULL, NULL, NULL)) == NULL) {
 		warnx("PEM_read_PUBKEY");
-		goto fail;
 	}
-	if ((rsa = EVP_PKEY_get1_RSA(pkey)) == NULL) {
-		warnx("EVP_PKEY_get1_RSA");
-		goto fail;
-	}
-
-fail:
-	if (fp) {
-		fclose(fp);
-	}
-	if (pkey) {
+	fclose(fp);
+	if (pkey != NULL && EVP_PKEY_id(pkey) != EVP_PKEY_RSA) {
 		EVP_PKEY_free(pkey);
+		pkey = NULL;
 	}
 
-	return (rsa);
+	return (pkey);
 }
 
 int
