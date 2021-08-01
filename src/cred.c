@@ -436,7 +436,7 @@ fido_cred_verify_self(const fido_cred_t *cred)
 
 	switch (cred->attcred.type) {
 	case COSE_ES256:
-		ok = fido_verify_sig_es256(&dgst, &cred->attcred.pubkey.es256,
+		ok = es256_verify_sig(&dgst, &cred->attcred.pubkey.es256,
 		    &cred->attstmt.sig);
 		break;
 	case COSE_RS256:

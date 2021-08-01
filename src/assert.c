@@ -421,41 +421,6 @@ fail:
 }
 
 int
-fido_verify_sig_es256(const fido_blob_t *dgst, const es256_pk_t *pk,
-    const fido_blob_t *sig)
-{
-	EVP_PKEY	*pkey = NULL;
-	EC_KEY		*ec = NULL;
-	int		 ok = -1;
-
-	/* ECDSA_verify needs ints */
-	if (dgst->len > INT_MAX || sig->len > INT_MAX) {
-		fido_log_debug("%s: dgst->len=%zu, sig->len=%zu", __func__,
-		    dgst->len, sig->len);
-		return (-1);
-	}
-
-	if ((pkey = es256_pk_to_EVP_PKEY(pk)) == NULL ||
-	    (ec = EVP_PKEY_get0_EC_KEY(pkey)) == NULL) {
-		fido_log_debug("%s: pk -> ec", __func__);
-		goto fail;
-	}
-
-	if (ECDSA_verify(0, dgst->ptr, (int)dgst->len, sig->ptr,
-	    (int)sig->len, ec) != 1) {
-		fido_log_debug("%s: ECDSA_verify", __func__);
-		goto fail;
-	}
-
-	ok = 0;
-fail:
-	if (pkey != NULL)
-		EVP_PKEY_free(pkey);
-
-	return (ok);
-}
-
-int
 fido_verify_sig_eddsa(const fido_blob_t *dgst, const eddsa_pk_t *pk,
     const fido_blob_t *sig)
 {
@@ -560,7 +525,7 @@ fido_assert_verify(const fido_assert_t *assert, size_t idx, int cose_alg,
 
 	switch (cose_alg) {
 	case COSE_ES256:
-		ok = fido_verify_sig_es256(&dgst, pk, &stmt->sig);
+		ok = es256_verify_sig(&dgst, pk, &stmt->sig);
 		break;
 	case COSE_RS256:
 		ok = rs256_verify_sig(&dgst, pk, &stmt->sig);
