@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2018 Yubico AB. All rights reserved.
+ * Copyright (c) 2018-2021 Yubico AB. All rights reserved.
  * Use of this source code is governed by a BSD-style
  * license that can be found in the LICENSE file.
  */
@@ -198,6 +198,127 @@ es256_pk_set_y(es256_pk_t *pk, const unsigned char *y)
 	return (0);
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000
+int
+es256_sk_create(es256_sk_t *key)
+{
+	EVP_PKEY_CTX	*pctx = NULL;
+	EVP_PKEY_CTX	*kctx = NULL;
+	EVP_PKEY	*p = NULL;
+	EVP_PKEY	*k = NULL;
+	BIGNUM		*d = NULL;
+	const int	 nid = NID_X9_62_prime256v1;
+	int		 n;
+	int		 ok = -1;
+
+	if ((pctx = EVP_PKEY_CTX_new_id(EVP_PKEY_EC, NULL)) == NULL ||
+	    EVP_PKEY_paramgen_init(pctx) <= 0 ||
+	    EVP_PKEY_CTX_set_ec_paramgen_curve_nid(pctx, nid) <= 0 ||
+	    EVP_PKEY_paramgen(pctx, &p) <= 0) {
+		fido_log_debug("%s: EVP_PKEY_paramgen", __func__);
+		goto fail;
+	}
+
+	if ((kctx = EVP_PKEY_CTX_new(p, NULL)) == NULL ||
+	    EVP_PKEY_keygen_init(kctx) <= 0 || EVP_PKEY_keygen(kctx, &k) <= 0) {
+		fido_log_debug("%s: EVP_PKEY_keygen", __func__);
+		goto fail;
+	}
+
+	if (EVP_PKEY_get_bn_param(k, "priv", &d) != 1 ||
+	    (n = BN_num_bytes(d)) < 0 || (size_t)n > sizeof(key->d) ||
+	    (n = BN_bn2bin(d, key->d)) < 0 || (size_t)n > sizeof(key->d)) {
+		fido_log_debug("%s: EVP_PKEY_get_bn_param", __func__);
+		goto fail;
+	}
+
+	ok = 0;
+fail:
+	BN_clear_free(d);
+	EVP_PKEY_free(p);
+	EVP_PKEY_free(k);
+	EVP_PKEY_CTX_free(pctx);
+	EVP_PKEY_CTX_free(kctx);
+
+	return (ok);
+}
+
+EVP_PKEY *
+es256_pk_to_EVP_PKEY(const es256_pk_t *k)
+{
+	BN_CTX		*bnctx = NULL;
+	EC_POINT	*q = NULL;
+	EVP_PKEY	*pkey = NULL;
+	EVP_PKEY_CTX	*pctx = NULL;
+	BIGNUM		*x = NULL;
+	BIGNUM		*y = NULL;
+	const EC_GROUP	*g = NULL;
+	const int	 nid = NID_X9_62_prime256v1;
+	OSSL_PARAM	 param[3];
+	char		 curve[] = "prime256v1";
+	u_char		*pbuf = NULL;
+	size_t		 plen = 0;
+	int		 ok = -1;
+
+	if ((bnctx = BN_CTX_new()) == NULL)
+		goto fail;
+
+	BN_CTX_start(bnctx);
+
+	if ((x = BN_CTX_get(bnctx)) == NULL ||
+	    (y = BN_CTX_get(bnctx)) == NULL)
+		goto fail;
+
+	if (BN_bin2bn(k->x, sizeof(k->x), x) == NULL ||
+	    BN_bin2bn(k->y, sizeof(k->y), y) == NULL) {
+		fido_log_debug("%s: BN_bin2bn", __func__);
+		goto fail;
+	}
+
+	if ((g = EC_GROUP_new_by_curve_name(nid)) == NULL) {
+		fido_log_debug("%s: EC_GROUP_new_by_curve_name", __func__);
+		goto fail;
+	}
+
+	if ((q = EC_POINT_new(g)) == NULL ||
+	    EC_POINT_set_affine_coordinates(g, q, x, y, bnctx) != 1 ||
+	    (plen = EC_POINT_point2buf(g, q, POINT_CONVERSION_UNCOMPRESSED,
+	    &pbuf, bnctx)) == 0) {
+		fido_log_debug("%s: EC_POINT", __func__);
+		goto fail;
+	}
+
+	param[0] = OSSL_PARAM_construct_utf8_string("group", curve, 0);
+	param[1] = OSSL_PARAM_construct_octet_string("pub", pbuf, plen);
+	param[2] = OSSL_PARAM_construct_end();
+
+	if ((pctx = EVP_PKEY_CTX_new_from_name(NULL, "EC", NULL)) == NULL ||
+	    EVP_PKEY_fromdata_init(pctx) != 1 ||
+	    EVP_PKEY_fromdata(pctx, &pkey, EVP_PKEY_PUBLIC_KEY, param) != 1) {
+		fido_log_debug("%s: EVP_PKEY_fromdata", __func__);
+		goto fail;
+	}
+
+	ok = 0;
+fail:
+	BN_CTX_end(bnctx);
+	BN_CTX_free(bnctx);
+	EC_POINT_free(q);
+	EVP_PKEY_CTX_free(pctx);
+	OPENSSL_free(pbuf);
+
+	return (pkey);
+}
+
+int
+es256_pk_from_EC_KEY(es256_pk_t *pk, const EC_KEY *ec)
+{
+	(void)pk;
+	(void)ec;
+
+	return (FIDO_ERR_INVALID_ARGUMENT);
+}
+#else
 int
 es256_sk_create(es256_sk_t *key)
 {
@@ -361,6 +482,7 @@ fail:
 
 	return (ok);
 }
+#endif /* OPENSSL_VERSION_NUMBER >= 0x30000000 */
 
 EVP_PKEY *
 es256_sk_to_EVP_PKEY(const es256_sk_t *k)
