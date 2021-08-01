@@ -200,9 +200,9 @@ int fido_get_random(void *, size_t);
 int fido_sha256(fido_blob_t *, const u_char *, size_t);
 
 /* crypto */
-int fido_verify_sig_eddsa(const fido_blob_t *, const eddsa_pk_t *,
-    const fido_blob_t *);
 int fido_get_signed_hash(int, fido_blob_t *, const fido_blob_t *,
+    const fido_blob_t *);
+int eddsa_verify_sig(const fido_blob_t *, const eddsa_pk_t *,
     const fido_blob_t *);
 int es256_verify_sig(const fido_blob_t *, const es256_pk_t *,
     const fido_blob_t *);

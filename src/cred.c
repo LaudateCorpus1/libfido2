@@ -444,7 +444,7 @@ fido_cred_verify_self(const fido_cred_t *cred)
 		    &cred->attstmt.sig);
 		break;
 	case COSE_EDDSA:
-		ok = fido_verify_sig_eddsa(&dgst, &cred->attcred.pubkey.eddsa,
+		ok = eddsa_verify_sig(&dgst, &cred->attcred.pubkey.eddsa,
 		    &cred->attstmt.sig);
 		break;
 	default:
