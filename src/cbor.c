@@ -732,6 +732,65 @@ cbor_encode_pin_opt(const fido_dev_t *dev)
 	return (cbor_build_uint8(prot));
 }
 
+#if OPENSSL_VERSION_NUMBER >= 0x30000000
+cbor_item_t *
+cbor_encode_change_pin_auth(const fido_dev_t *dev, const fido_blob_t *secret,
+    const fido_blob_t *new_pin_enc, const fido_blob_t *pin_hash_enc)
+{
+	fido_blob_t	 key;
+	uint8_t		 prot;
+	uint8_t		 dgst[SHA256_DIGEST_LENGTH];
+	size_t		 dgst_len;
+	size_t		 outlen;
+	char		 name[] = "sha256";
+	cbor_item_t	*item = NULL;
+	EVP_MAC		*mac = NULL;
+	EVP_MAC_CTX	*mctx = NULL;
+	OSSL_PARAM	 param[2];
+
+	key.ptr = secret->ptr;
+	key.len = secret->len;
+
+	if ((prot = fido_dev_get_pin_protocol(dev)) == 0) {
+		fido_log_debug("%s: fido_dev_get_pin_protocol", __func__);
+		goto fail;
+	}
+
+	if (prot == CTAP_PIN_PROTOCOL2 && key.len > 32)
+		key.len = 32;
+
+	if ((mac = EVP_MAC_fetch(NULL, "HMAC", NULL)) == NULL ||
+	    (mctx = EVP_MAC_CTX_new(mac)) == NULL) {
+		fido_log_debug("%s: EVP_MAC_CTX_new", __func__);
+		goto fail;
+	}
+
+	param[0] = OSSL_PARAM_construct_utf8_string("digest", name, 0);
+	param[1] = OSSL_PARAM_construct_end();
+
+	if (EVP_MAC_init(mctx, key.ptr, key.len, param) != 1 ||
+	    EVP_MAC_update(mctx, new_pin_enc->ptr, new_pin_enc->len) != 1 ||
+	    EVP_MAC_update(mctx, pin_hash_enc->ptr, pin_hash_enc->len) != 1 ||
+	    EVP_MAC_final(mctx, dgst, &dgst_len, sizeof(dgst)) != 1 ||
+	    dgst_len != sizeof(dgst)) {
+		fido_log_debug("%s: EVP_MAC", __func__);
+		goto fail;
+	}
+
+	outlen = (prot == CTAP_PIN_PROTOCOL1) ? 16 : dgst_len;
+
+	if ((item = cbor_build_bytestring(dgst, outlen)) == NULL) {
+		fido_log_debug("%s: cbor_build_bytestring", __func__);
+		goto fail;
+	}
+
+fail:
+	EVP_MAC_free(mac);
+	EVP_MAC_CTX_free(mctx);
+
+	return (item);
+}
+#else
 cbor_item_t *
 cbor_encode_change_pin_auth(const fido_dev_t *dev, const fido_blob_t *secret,
     const fido_blob_t *new_pin_enc, const fido_blob_t *pin_hash_enc)
@@ -780,6 +839,7 @@ fail:
 
 	return (item);
 }
+#endif /* OPENSSL_VERSION_NUMBER >= 0x30000000 */
 
 static int
 cbor_encode_hmac_secret_param(const fido_dev_t *dev, cbor_item_t *item,
